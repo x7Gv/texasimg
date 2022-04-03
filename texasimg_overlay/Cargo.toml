@@ -13,7 +13,13 @@ path = "src/bin/overlay.rs"
 glfw = { version = "0.44.0", git = "https://github.com/coderedart/glfw-rs.git", features = ["all"] }
 bytemuck = "1"
 egui = { version = "0.17.0", features = ["convert_bytemuck", "default_fonts"] }
+egui_extras = { version = "0.17.0", features = ["image"] }
 wgpu = {version = "*", git = "https://github.com/gfx-rs/wgpu.git"}
+
+image = "0.24.1"
+arboard = "2.1.0"
+
+texasimg = { path = "../texasimg" }
 
 #[dev-dependencies]
 pollster = "0.2"

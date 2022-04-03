@@ -1,4 +1,8 @@
+mod latex_render;
+
 use std::{fs::File, io::Write, marker::PhantomData, path::PathBuf, process::Command};
+
+use image::EncodableLayout;
 
 pub struct Constructing;
 pub struct Instantiated;
@@ -9,73 +13,54 @@ pub enum ModefulContent {
     Displayed(String),
 }
 
-fn latex_template(content: ModefulContent) -> String {
+fn default_imports() -> String {
+    r#"\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{xcolor}
+\usepackage{siunitx}
+\usepackage[utf8]{inputenc}
+\usepackage{tikz}
+\usepackage{tikz-cd}"#
+        .to_string()
+}
+
+fn latex_template(content: ModefulContent, imports: String) -> String {
     match content {
         ModefulContent::Inline(content) => {
             format!(
                 r#"\documentclass[12pt]{}
-\usepackage{}
-\usepackage{}
-\usepackage{}
-\usepackage{}
-\usepackage{}
-\usepackage[utf8]{}
+{}
 \thispagestyle{}
 \begin{}
 \color{}
-( {} )
+\( {} \)
 \end{}"#,
-                "{article}",
-                "{amsmath}",
-                "{amssymb}",
-                "{amsfonts}",
-                "{xcolor}",
-                "{siunitx}",
-                "{inputenc}",
-                "{empty}",
-                "{document}",
-                "{white}",
-                content,
-                "{document}"
+                "{article}", imports, "{empty}", "{document}", "{white}", content, "{document}"
             )
         }
         ModefulContent::Displayed(content) => {
             format!(
                 r#"\documentclass[12pt]{}
-\usepackage{}
-\usepackage{}
-\usepackage{}
-\usepackage{}
-\usepackage{}
-\usepackage[utf8]{}
+{}
 \thispagestyle{}
 \begin{}
 \color{}
 \[ {} \]
 \end{}"#,
-                "{article}",
-                "{amsmath}",
-                "{amssymb}",
-                "{amsfonts}",
-                "{xcolor}",
-                "{siunitx}",
-                "{inputenc}",
-                "{empty}",
-                "{document}",
-                "{white}",
-                content,
-                "{document}"
+                "{article}", imports, "{empty}", "{document}", "{white}", content, "{document}"
             )
         }
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RenderInstance<State = Constructing> {
     root: PathBuf,
     content: RenderContent,
     png: Option<Vec<u8>>,
     stdout: Option<Vec<u8>>,
+    scale: Option<f32>,
     state: std::marker::PhantomData<State>,
 }
 
@@ -106,6 +91,7 @@ impl<Instantiated> RenderInstance<Instantiated> {
             root: self.root.clone(),
             content: self.content.clone(),
             png: Some(data).clone(),
+            scale: self.scale.clone(),
             stdout: None,
             state: PhantomData::default(),
         })
@@ -122,6 +108,9 @@ impl<Instantiated> RenderInstance<Instantiated> {
     }
     pub fn content_mut(&mut self) -> &mut RenderContent {
         &mut self.content
+    }
+    pub fn scale(&self) -> f32 {
+        self.scale.unwrap()
     }
 
     fn create_tex(&self) -> Result<File, Box<dyn std::error::Error>> {
@@ -147,8 +136,10 @@ impl<Instantiated> RenderInstance<Instantiated> {
             .arg("blang/latex:ubuntu")
             .arg("/bin/bash")
             .arg("-c")
-            .arg("timeout 5 latex -no-shell-escape -interaction=nonstopmode -halt-on-error equation.tex && timeout 5 dvisvgm --no-fonts --scale=2.0 --exact equation.dvi")
+            .arg(format!("timeout 5 latex -no-shell-escape -interaction=nonstopmode -halt-on-error equation.tex && timeout 5 dvisvgm --no-fonts --scale={} --exact equation.dvi", self.scale()))
             .output()?;
+
+        println!("{}", String::from_utf8_lossy(&_cmd.stdout));
 
         Ok(())
     }
@@ -202,6 +193,7 @@ impl<Rendered> RenderInstance<Rendered> {
 pub struct RenderInstanceBuilder {
     root: PathBuf,
     content: Option<RenderContent>,
+    scale: Option<f32>,
 }
 
 impl RenderInstanceBuilder {
@@ -209,6 +201,7 @@ impl RenderInstanceBuilder {
         Self {
             root: root.into(),
             content: None,
+            scale: None,
         }
     }
 
@@ -218,12 +211,19 @@ impl RenderInstanceBuilder {
         new
     }
 
+    pub fn scale(&mut self, scale: f32) -> &mut Self {
+        let mut new = self;
+        new.scale = Some(scale);
+        new
+    }
+
     pub fn build(&self) -> Option<RenderInstance<Instantiated>> {
         if let Some(content) = &self.content {
             Some(RenderInstance {
                 root: Clone::clone(&self.root),
                 content: Clone::clone(&content),
                 png: Some(Vec::new()),
+                scale: self.scale.map_or(Some(1.0), |value| Some(value)),
                 stdout: None,
                 state: PhantomData::default(),
             })
@@ -238,6 +238,7 @@ pub struct RenderContent {
     colour: ContentColour,
     mode: ContentMode,
     content: String,
+    imports: String,
 }
 
 pub enum ContentKind {
@@ -288,7 +289,7 @@ pub struct RenderContentBuilder {
 }
 
 impl RenderContentBuilder {
-    pub fn new(content: String) -> Self {
+    pub fn new(content: String, modified_imports: Option<String>) -> Self {
         let mut new = Self::default();
         new.content = content;
         new
@@ -342,4 +343,9 @@ impl Default for ContentColour {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    pub fn testedi_test_est() {
+        todo!()
+    }
 }

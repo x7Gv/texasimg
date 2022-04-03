@@ -13,9 +13,19 @@ impl GlfwWindow {
         glfw.window_hint(glfw::WindowHint::TransparentFramebuffer(true));
         glfw.window_hint(glfw::WindowHint::MousePassthrough(true));
 
-        let (mut window, events) = glfw.clone().with_primary_monitor(|_, m| {
-            glfw.create_window(m.map_or(2048, |m| m.get_workarea().2 as u32), m.map_or(2048, |m| m.get_workarea().3 as u32), "Overlay Window", m.map_or(glfw::WindowMode::Windowed, |m| glfw::WindowMode::FullScreen(m)))
-        }).unwrap();
+        let (mut window, events) = glfw
+            .clone()
+            .with_primary_monitor(|_, m| {
+                glfw.create_window(
+                    m.map_or(2048, |m| m.get_workarea().2 as u32),
+                    m.map_or(2048, |m| m.get_workarea().3 as u32),
+                    "Overlay Window",
+                    m.map_or(glfw::WindowMode::Windowed, |m| {
+                        glfw::WindowMode::FullScreen(m)
+                    }),
+                )
+            })
+            .unwrap();
 
         window.set_all_polling(true);
         window.set_store_lock_key_mods(true);
