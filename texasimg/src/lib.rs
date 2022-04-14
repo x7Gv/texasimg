@@ -1,2 +1,2 @@
 #![allow(dead_code)]
-mod latex_render;
+pub mod latex_render;
