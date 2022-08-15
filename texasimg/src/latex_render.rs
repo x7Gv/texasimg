@@ -10,7 +10,6 @@ use poppler::PopplerDocument;
 use tectonic::{
     config, ctry,
     driver::{self, ProcessingSession, ProcessingSessionBuilder},
-    errmsg,
     status::self,
 };
 
@@ -69,7 +68,7 @@ impl ContentColour {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct RenderContentImports {
-    data: String,
+    pub data: String,
 }
 impl Default for RenderContentImports {
     fn default() -> Self {
@@ -78,11 +77,12 @@ impl Default for RenderContentImports {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct RenderContentOptions {
-    ink_colour: ContentColour,
-    formula_mode: FormulaMode,
-    imports: RenderContentImports,
+    pub ink_colour: ContentColour,
+    pub formula_mode: FormulaMode,
+    pub imports: RenderContentImports,
+    pub scale: Option<f32>
 }
 
 pub struct RenderContent {
@@ -188,9 +188,18 @@ mod tests {
     }
 }
 
+use thiserror::Error;
+#[derive(Error, Debug)]
+pub enum RenderBackendError {
+    #[error("vital container image not present")]
+    ImageNotPresent,
+    #[error("unknown error")]
+    Unknown
+}
+
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-pub trait Renderer {
+pub trait RenderBackend {
     fn render(&mut self) -> Result<Vec<u8>>;
 }
 
@@ -277,7 +286,7 @@ pub mod native {
         }
     }
 
-    impl Renderer for RenderInstanceNative {
+    impl RenderBackend for RenderInstanceNative {
         fn render(&mut self) -> Result<Vec<u8>> {
             let tex = self.create_tex();
             let pdf = self.create_pdf(&tex)?;
@@ -304,12 +313,18 @@ pub mod native {
     }
 }
 
-mod containerised {
+pub mod containerised {
     use super::*;
+
+    pub enum RenderOutputLog {
+        Success,
+        Failure(Vec<String>),
+    }
 
     pub struct RenderInstanceCont {
         root: PathBuf,
         content: RenderContent,
+        output: Option<RenderOutputLog>,
     }
 
     /// Structural impl.
@@ -318,6 +333,7 @@ mod containerised {
             Self {
                 root: root.into(),
                 content,
+                output: None,
             }
         }
 
@@ -344,13 +360,17 @@ mod containerised {
         // TODO:
         // docker_cmd() - Change the utilisation of docker API from process fork to a crate one
 
+        fn parse_output_log(s: &str) -> RenderOutputLog {
+            unimplemented!()
+        }
+
         pub fn create_tex(&self) -> Vec<u8> {
             self.content.as_tex().into_bytes()
         }
 
-        fn docker_cmd(&self) -> Result<()> {
+        fn docker_cmd(&self) -> Result<RenderOutputLog> {
 
-            let _cmd = Command::new("docker")
+            let cmd = Command::new("docker")
                 .arg("run")
                 .arg("--rm")
                 .arg("-i")
@@ -361,10 +381,12 @@ mod containerised {
                 .arg("blang/latex:ubuntu")
                 .arg("/bin/bash")
                 .arg("-c")
-                .arg(format!("timeout 5 latex -no-shell-escape -interaction=nonstopmode -halt-on-error equation.tex && timeout 5 dvisvgm --no-fonts --scale={} --exact equation.dvi", 2.0))
+                .arg(format!("timeout 5 latex -no-shell-escape -interaction=nonstopmode -halt-on-error equation.tex && timeout 5 dvisvgm --no-fonts --scale={} --exact equation.dvi", self.content().options.scale.map_or(4.0, |f| f)))
                 .output()?;
 
-            Ok(())
+            println!("{}", String::from_utf8(cmd.stdout).unwrap());
+
+            Ok(RenderOutputLog::Success)
         }
 
         fn render_png(&mut self) -> Result<Vec<u8>> {
@@ -404,7 +426,7 @@ mod containerised {
         }
     }
 
-    impl Renderer for RenderInstanceCont {
+    impl RenderBackend for RenderInstanceCont {
         fn render(&mut self) -> Result<Vec<u8>> {
 
             let tex = self.create_tex();

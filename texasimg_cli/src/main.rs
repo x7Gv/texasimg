@@ -9,9 +9,10 @@ use std::{
 use ansi_term::{Colour::*, Style};
 use arboard::{Clipboard, ImageData};
 use image::{EncodableLayout, ImageEncoder, ImageFormat, ImageOutputFormat};
+use mktemp::Temp;
 use structopt::clap::arg_enum;
 use structopt::StructOpt;
-use texasimg::{ContentKind, ModefulContent, RenderContent, RenderInstance, Rendered};
+use texasimg::latex_render::{RenderContent, RenderContentOptions, FormulaMode, containerised::RenderInstanceCont, ContentColour, RenderBackend};
 
 arg_enum! {
     #[derive(Debug)]
@@ -45,22 +46,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let rc: RenderContent;
+    let mut rco = RenderContentOptions::default();
+
+    rco.ink_colour = ContentColour::White;
+    rco.scale = Some(opt.scale);
+
     match opt.math_mode {
         MathMode::Inline => {
-            rc = RenderContent::builder(ContentKind::Formula(ModefulContent::Inline(opt.equation)))
-                .build()
+            rco.formula_mode = FormulaMode::Inline;
         }
         MathMode::Displayed => {
-            rc = RenderContent::builder(ContentKind::Formula(ModefulContent::Displayed(
-                opt.equation,
-            )))
-            .build()
+            rco.formula_mode = FormulaMode::Displayed;
         }
     }
 
-    let mut ri = RenderInstance::builder().content(rc).build().unwrap();
+    rc = RenderContent::new_with_options(opt.equation, rco);
 
-    let ri = ri.render().unwrap();
+    let mut tmp_dir = Temp::new_dir().unwrap();
+    let mut ri = RenderInstanceCont::new(tmp_dir.as_path(), rc);
+
+    let data = ri.render().unwrap();
 
     let separator = ansi_term::Colour::RGB(55, 59, 65)
         .bold()
@@ -69,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "{}\n{}\n{}",
         separator,
-        Style::new().bold().paint(ri.content().content()),
+        Style::new().bold().paint(ri.content().as_tex()),
         separator
     );
 
@@ -78,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Green.underline().paint(&*ri.root().to_string_lossy())
     );
 
-    let img = image::load_from_memory(&ri.png()).unwrap().to_rgba8();
+    let img = image::load_from_memory(&data).unwrap().to_rgba8();
     let (w, h) = img.dimensions();
 
     let mut cb_ctx = Clipboard::new().unwrap();

@@ -3500,6 +3500,7 @@ dependencies = [
  "resvg",
  "tectonic",
  "tectonic_bridge_core",
+ "thiserror",
  "tiny-skia",
  "usvg",
 ]
@@ -3511,6 +3512,7 @@ dependencies = [
  "ansi_term",
  "arboard",
  "image 0.24.1",
+ "mktemp",
  "structopt",
  "texasimg",
 ]
@@ -3525,6 +3527,7 @@ dependencies = [
  "egui_extras",
  "glfw",
  "image 0.24.1",
+ "mktemp",
  "pollster",
  "texasimg",
  "wgpu",

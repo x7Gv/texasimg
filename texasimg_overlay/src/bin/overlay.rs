@@ -4,7 +4,8 @@ use std::sync::mpsc;
 use arboard::{Clipboard, ImageData};
 use egui::{FullOutput, Window};
 use image::EncodableLayout;
-use texasimg::{ContentColour, ContentKind, ModefulContent, RenderContent, RenderInstance};
+use mktemp::Temp;
+use texasimg::latex_render::{RenderContent, RenderContentOptions, ContentColour, containerised::RenderInstanceCont, RenderBackend};
 use texasimg_overlay::{GlfwWindow, WgpuRenderer};
 use wgpu::{
     CommandEncoderDescriptor, LoadOp, Operations, RenderPassColorAttachment, RenderPassDescriptor,
@@ -44,6 +45,7 @@ fn main() {
 
     let mut app = TexasimgEguiApp::default();
     let mut cb_ctx = Clipboard::new().unwrap();
+    let tmp_dir = Temp::new_dir().unwrap();
 
     let (tx, rx) = mpsc::channel();
 
@@ -119,34 +121,33 @@ fn main() {
                 ui.horizontal(|ui| {
                     if ui.button("RENDER").clicked() {
 
-                        let r_c: RenderContent;
+                        let rc: RenderContent;
+                        let mut rco = RenderContentOptions::default();
+                        rco.scale = Some(app.scale);
+                        rco.ink_colour = ContentColour::White;
 
                         match app.content_type {
                             ContentType::Formula => {
-                                r_c = RenderContent::builder(ContentKind::Formula(ModefulContent::Displayed(app.input.clone()))).build();
+                                rc = RenderContent::new_with_options(app.input.clone(), rco);
                             },
                             ContentType::Raw => {
-                                r_c = RenderContent::builder(ContentKind::Raw(app.input.clone())).build();
+                                rc = RenderContent::new_with_options(app.input.clone(), rco);
                             },
                         }
 
-                        let r_i = RenderInstance::builder()
-                            .content(r_c)
-                            .scale(app.scale)
-                            .build();
 
-                        if let Some(mut r_i) = r_i {
+                        let mut r_i = RenderInstanceCont::new(tmp_dir.as_path(), rc);
+
                             let tx_j = tx.clone();
                             std::thread::spawn(move || {
-                                if let Ok(r_i) = r_i.render() {
+                                if let Ok(data) = r_i.render() {
                                     let img =
-                                        image::load_from_memory(&r_i.png()).unwrap().to_rgba8();
+                                        image::load_from_memory(&data).unwrap().to_rgba8();
                                     let (w, h) = img.dimensions();
 
                                     tx_j.send((img, (w, h))).unwrap();
                                 }
                             });
-                        }
 
                         app.render_ready = false;
                     }

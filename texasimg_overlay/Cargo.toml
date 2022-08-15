@@ -19,7 +19,9 @@ wgpu = {version = "*", git = "https://github.com/gfx-rs/wgpu.git"}
 image = "0.24.1"
 arboard = "2.1.0"
 
+mktemp = "0.4"
 texasimg = { path = "../texasimg" }
+
 
 #[dev-dependencies]
 pollster = "0.2"

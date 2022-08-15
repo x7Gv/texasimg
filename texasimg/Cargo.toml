@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [dependencies]
 anyhow = "1.0"
+thiserror = "1.0"
 image = "0.24.1"
 mktemp = "0.4"
 poppler = "0.3.2"
