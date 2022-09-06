@@ -5,14 +5,6 @@ use std::{
     process::{Command, Stdio},
 };
 
-use cairo::{Context, Format};
-use poppler::PopplerDocument;
-use tectonic::{
-    config, ctry,
-    driver::{self, ProcessingSession, ProcessingSessionBuilder},
-    status::self,
-};
-
 const USEPACKAGE: &'static str = r#"\usepackage{{}}"#;
 
 const DEFAULT_IMPORTS: &'static str = r#"\usepackage{amsmath}
@@ -235,116 +227,6 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub trait RenderBackend {
     fn render(&mut self) -> Result<Vec<u8>>;
-}
-
-pub mod native {
-
-    use super::*;
-
-    pub struct RenderInstanceNative {
-        root: PathBuf,
-        content: RenderContent,
-    }
-
-    impl RenderInstanceNative {
-        pub fn new<P: Into<PathBuf>>(root: P, content: RenderContent) -> Self {
-            Self {
-                root: root.into(),
-                content,
-            }
-        }
-
-        fn create_tex(&self) -> Vec<u8> {
-            let data = self.content.as_tex().as_bytes().to_vec();
-            data
-        }
-
-        fn create_pdf(&self, tex: &[u8]) -> Result<Vec<u8>> {
-            let mut status = status::NoopStatusBackend::default();
-
-            let auto_create_config_file = false;
-            let config = ctry!(config::PersistentConfig::open(auto_create_config_file);
-                           "failed to open the default configuration file");
-
-            let only_cached = false;
-            let bundle = ctry!(config.default_bundle(only_cached, &mut status);
-                           "failed to load the default resource bundle");
-
-            let format_cache_path = ctry!(config.format_cache_path();
-                                      "failed to set up the format cache");
-
-            let mut files = {
-                let mut sb = ProcessingSessionBuilder::default();
-                sb.bundle(bundle)
-                    .primary_input_buffer(tex)
-                    .tex_input_name("texput.tex")
-                    .format_name("latex")
-                    .format_cache_path(format_cache_path)
-                    .keep_logs(false)
-                    .keep_intermediates(false)
-                    .print_stdout(false)
-                    .output_format(driver::OutputFormat::Xdv)
-                    .do_not_write_output_files();
-
-                let mut sess = ctry!(sb.create(&mut status); "failed to initialize the LaTeX processing session");
-                ctry!(sess.run(&mut status); "the LaTeX engine failed");
-                sess.into_file_data()
-            };
-
-            let data = files.remove("texput.xdv").unwrap().data;
-            Ok(data)
-        }
-
-        fn create_png(&self, pdf: Vec<u8>) -> Result<Vec<u8>> {
-            let mut output: Vec<u8> = Vec::new();
-
-            let mut path = self.root.clone();
-            path.push("texput");
-            path.set_extension("dvi");
-
-            let mut file = File::create(path)?;
-            file.write_all(&pdf[..])?;
-
-            let dvipng_cmd = Command::new("dvipng")
-                .arg("texput.dvi")
-                .current_dir(&self.root)
-                .spawn()?;
-
-            let mut out_path = self.root.clone();
-            out_path.push("texput");
-            out_path.set_extension("png");
-            let mut out = File::open(out_path)?;
-            out.read(&mut output[..]).unwrap();
-
-            Ok(output)
-        }
-    }
-
-    impl RenderBackend for RenderInstanceNative {
-        fn render(&mut self) -> Result<Vec<u8>> {
-            let tex = self.create_tex();
-            let pdf = self.create_pdf(&tex)?;
-            let png = self.create_png(pdf)?;
-
-            let mut file = File::create("out.png")?;
-            file.write(&png)?;
-
-            Ok(png.to_vec())
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::RenderContent;
-
-        #[test]
-        pub fn content() {
-            let r_c = RenderContent::new("a + b = c".to_string()).as_tex();
-            assert_eq!(
-            r_c,
-            "\\documentclass[12pt]{article}\n\\usepackage{amsmath}\n\\usepackage{amssymb}\n\\usepackage{amsfonts}\n\\usepackage{xcolor}\n\\usepackage{siunitx}\n\\usepackage[utf8]{inputenc}\n\\usepackage{tikz}\n\\usepackage{tikz-cd}\n\n\\thispagestyle{empty}\n\\begin{document}\n\\color{black}\n\\[ a + b = c \\]\n\\end{document}\n".to_string())
-        }
-    }
 }
 
 pub mod containerised {
