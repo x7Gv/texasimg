@@ -13,6 +13,8 @@ use tectonic::{
     status::self,
 };
 
+const USEPACKAGE: &'static str = r#"\usepackage{{}}"#;
+
 const DEFAULT_IMPORTS: &'static str = r#"\usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{amsfonts}
@@ -67,9 +69,41 @@ impl ContentColour {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct RenderContentImports {
-    pub data: String,
+pub enum RenderContentImport {
+    Usepackage(String),
+    Custom(String),
 }
+
+impl RenderContentImport {
+    pub fn as_tex(&self) -> String {
+        match self {
+            RenderContentImport::Usepackage(val) => {
+                USEPACKAGE.replace("{}", &val).to_string()
+            },
+            RenderContentImport::Custom(val) => {
+                val.clone()
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct RenderContentImports {
+    pub data: Vec<RenderContentImport>,
+}
+
+impl ToString for RenderContentImports {
+    fn to_string(&self) -> String {
+        let mut output = String::new();
+
+        for import in self.data {
+            output.push_str(&(import.as_tex()))
+        }
+
+        output
+    }
+}
+
 impl Default for RenderContentImports {
     fn default() -> Self {
         let data = DEFAULT_IMPORTS.to_string();
@@ -447,6 +481,15 @@ pub mod containerised {
     mod tests {
         use mktemp::Temp;
         use super::*;
+
+        #[test]
+        fn usepackage() {
+            let usepackage = r#"\usepackage{{}}"#;
+
+            let t = usepackage.replace("{}", "jea");
+
+            assert_eq!(r#"\usepackage{jea}"#, t);
+        }
 
         #[test]
         fn render() {
