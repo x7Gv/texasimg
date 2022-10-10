@@ -1,15 +1,21 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::mpsc::Sender};
 use std::sync::mpsc;
 
 use arboard::{Clipboard, ImageData};
-use egui::{FullOutput, Window};
+use egui::{FullOutput, Window, Spinner, Event};
+use egui_extras::RetainedImage;
 use image::EncodableLayout;
 use mktemp::Temp;
-use texasimg::latex_render::{RenderContent, RenderContentOptions, ContentColour, containerised::RenderInstanceCont, RenderBackend};
+use poll_promise::Promise;
+use texasimg::latex_render::{RenderContent, RenderContentOptions, ContentColour, containerised::RenderInstanceCont, RenderBackend, FormulaMode};
 use texasimg_overlay::{GlfwWindow, WgpuRenderer};
 use wgpu::{
     CommandEncoderDescriptor, LoadOp, Operations, RenderPassColorAttachment, RenderPassDescriptor,
 };
+
+type ImagePacket = (Vec<u8>, (image::ImageBuffer<image::Rgba<u8>, Vec<u8>>, (u32, u32)));
+type ImageSender = mpsc::Sender<ImagePacket>;
+type ImageReceiver = mpsc::Receiver<ImagePacket>;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum ContentType {
@@ -17,22 +23,30 @@ enum ContentType {
     Raw,
 }
 
-struct TexasimgEguiApp {
+struct TexasimgApp {
     input: String,
     scale: f32,
+    render_rx: ImageReceiver,
+    render_tx: ImageSender,
     render_ready: bool,
+    preview_ready: bool,
     colour: ContentColour,
     content_type: ContentType,
+    img: Option<RetainedImage>,
 }
 
-impl Default for TexasimgEguiApp {
-    fn default() -> Self {
-        TexasimgEguiApp {
+impl TexasimgApp {
+    fn new_with_channel((tx, rx): (ImageSender, ImageReceiver)) -> Self {
+        TexasimgApp {
             input: "x^2 + 1 = 0".to_string(),
             scale: 2.,
+            render_rx: rx,
+            render_tx: tx,
             render_ready: true,
+            preview_ready: true,
             colour: ContentColour::default(),
             content_type: ContentType::Formula,
+            img: None,
         }
     }
 }
@@ -43,11 +57,11 @@ fn main() {
         pollster::block_on(WgpuRenderer::new(&glfw_window)).expect("failed to init wgpu");
     let ctx = egui::Context::default();
 
-    let mut app = TexasimgEguiApp::default();
+    let (tx, rx) = mpsc::channel();
+
+    let mut app = TexasimgApp::new_with_channel((tx.clone(), rx));
     let mut cb_ctx = Clipboard::new().unwrap();
     let tmp_dir = Temp::new_dir().unwrap();
-
-    let (tx, rx) = mpsc::channel();
 
     glfw_window.window.set_floating(true);
 
@@ -95,14 +109,13 @@ fn main() {
         // now, we can do our own things with egui
         // take the input from glfw_window
         ctx.begin_frame(glfw_window.raw_input.take());
-        Window::new("TeXAsIMG").show(&ctx, |ui| {
+        Window::new("TeXasIMG").show(&ctx, |ui| {
 
             ui.label("Enter LaTeX here");
             ui.code_editor(&mut app.input);
 
             ui.group(|ui| {
 
-                /*
                 egui::ComboBox::from_label("Text colour")
                     .selected_text(format!("{:?}", app.colour))
                     .show_ui(ui, |ui| {
@@ -116,15 +129,15 @@ fn main() {
                         ui.selectable_value(&mut app.content_type, ContentType::Formula, "Formula");
                         ui.selectable_value(&mut app.content_type, ContentType::Raw, "Raw");
                     });
-                */
 
                 ui.horizontal(|ui| {
+
                     if ui.button("RENDER").clicked() {
 
                         let rc: RenderContent;
                         let mut rco = RenderContentOptions::default();
                         rco.scale = Some(app.scale);
-                        rco.ink_colour = ContentColour::White;
+                        rco.ink_colour = (&app.colour).clone();
 
                         match app.content_type {
                             ContentType::Formula => {
@@ -135,7 +148,6 @@ fn main() {
                             },
                         }
 
-
                         let mut r_i = RenderInstanceCont::new(tmp_dir.as_path(), rc);
 
                             let tx_j = tx.clone();
@@ -145,7 +157,7 @@ fn main() {
                                         image::load_from_memory(&data).unwrap().to_rgba8();
                                     let (w, h) = img.dimensions();
 
-                                    tx_j.send((img, (w, h))).unwrap();
+                                    tx_j.send((data, (img, (w, h)))).unwrap();
                                 }
                             });
 
@@ -158,12 +170,19 @@ fn main() {
 
                     ui.add(egui::Slider::new(&mut app.scale, 1.0..=10.0).text("scale"));
 
-                    if let Ok(data) = rx.try_recv() {
+                    if let Ok(data) = app.render_rx.try_recv() {
                         let img_data = ImageData {
-                            width: (data.1).0 as usize,
-                            height: (data.1).1 as usize,
-                            bytes: Cow::Borrowed(data.0.as_bytes()),
+                            width: (data.1).1.0 as usize,
+                            height: (data.1).1.1 as usize,
+                            bytes: Cow::Borrowed(data.1.0.as_bytes()),
                         };
+
+                        match RetainedImage::from_image_bytes("out", data.0.as_bytes()) {
+                            Ok(image) => {
+                                app.img = Some(image);
+                            },
+                            Err(_) => {},
+                        }
 
                         cb_ctx.set_image(img_data).unwrap();
                         app.render_ready = true;
@@ -171,6 +190,10 @@ fn main() {
                         if !app.render_ready {
                             ui.add(egui::Spinner::new());
                         }
+                    }
+
+                    if let Some(image) = &app.img {
+                        image.show(ui);
                     }
                 });
             });

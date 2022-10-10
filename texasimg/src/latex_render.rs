@@ -17,6 +17,10 @@ const DEFAULT_IMPORTS: &'static str = r#"\usepackage{amsmath}
 \usepackage{tikz-cd}
 "#;
 
+fn default_imports() -> Vec<RenderContentImport> {
+    DEFAULT_IMPORTS.split("\n").map(|s| RenderContentImport::Custom(s.to_string())).collect()
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum FormulaMode {
     Inline,
@@ -79,17 +83,31 @@ impl RenderContentImport {
     }
 }
 
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct RenderContentImports {
     pub data: Vec<RenderContentImport>,
+}
+
+impl RenderContentImports {
+    pub fn add<I: Into<RenderContentImport>>(&mut self, import: I) -> &mut Self {
+        self.data.push(import.into());
+        self
+    }
+}
+
+impl Extend<RenderContentImport> for RenderContentImports {
+    fn extend<T: IntoIterator<Item = RenderContentImport>>(&mut self, iter: T) {
+        self.data.extend(iter)
+    }
 }
 
 impl ToString for RenderContentImports {
     fn to_string(&self) -> String {
         let mut output = String::new();
 
-        for import in self.data {
-            output.push_str(&(import.as_tex()))
+        for import in self.data.clone() {
+            output.push_str(&format!("\n{}", import.as_tex()));
         }
 
         output
@@ -98,8 +116,7 @@ impl ToString for RenderContentImports {
 
 impl Default for RenderContentImports {
     fn default() -> Self {
-        let data = DEFAULT_IMPORTS.to_string();
-        Self { data }
+        Self { data: default_imports() }
     }
 }
 
@@ -147,7 +164,7 @@ impl RenderContent {
 {}
 {}
 "#,
-            documentclass, self.options.imports.data, pagestyle, begin, color, formula, end
+            documentclass, self.options.imports.to_string(), pagestyle, begin, color, formula, end
         )
     }
 
@@ -281,6 +298,9 @@ pub mod containerised {
         }
 
         pub fn create_tex(&self) -> Vec<u8> {
+
+            println!("{}", self.content().as_tex());
+
             self.content.as_tex().into_bytes()
         }
 
@@ -352,6 +372,7 @@ pub mod containerised {
             tex_path.set_extension("tex");
 
             let mut tex_file = File::create(&tex_path)?;
+
             tex_file.write_all(&tex)?;
             self.docker_cmd()?;
 
