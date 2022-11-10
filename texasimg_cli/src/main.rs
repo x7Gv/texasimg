@@ -12,13 +12,14 @@ use image::{EncodableLayout, ImageEncoder, ImageFormat, ImageOutputFormat};
 use mktemp::Temp;
 use structopt::clap::arg_enum;
 use structopt::StructOpt;
-use texasimg::latex_render::{RenderContent, RenderContentOptions, FormulaMode, containerised::RenderInstanceCont, ContentColour, RenderBackend};
+use texasimg::latex_render::{RenderContent, RenderContentOptions, FormulaMode, containerised::RenderInstanceCont, ContentColour, RenderBackend, ContentMode};
 
 arg_enum! {
     #[derive(Debug)]
     enum MathMode {
         Inline,
-        Displayed
+        Displayed,
+        Raw,
     }
 }
 
@@ -53,10 +54,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match opt.math_mode {
         MathMode::Inline => {
-            rco.formula_mode = FormulaMode::Inline;
+            rco.content_mode = ContentMode::Formula(FormulaMode::Inline);
         }
         MathMode::Displayed => {
-            rco.formula_mode = FormulaMode::Displayed;
+            rco.content_mode = ContentMode::Formula(FormulaMode::Displayed);
+        }
+        MathMode::Raw => {
+            rco.content_mode = ContentMode::Raw;
         }
     }
 
