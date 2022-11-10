@@ -1,5 +1,5 @@
 use arboard::{ImageData, Clipboard};
-use eframe::{egui, epaint::Rgba, Renderer};
+use eframe::{egui, epaint::{Rgba, Vec2}, Renderer};
 use egui_extras::RetainedImage;
 use image::EncodableLayout;
 use mktemp::Temp;
@@ -13,6 +13,7 @@ fn main() {
     options.drag_and_drop_support = true;
     options.decorated = false;
     options.maximized = true;
+    options.initial_window_size = Some(Vec2::new(100., 100.));
 
     let channel = mpsc::channel();
 
@@ -68,6 +69,7 @@ impl eframe::App for TexasimgApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+
         egui::Window::new("TeXasIMG").show(&ctx, |ui| {
 
             ui.label("Enter LaTeX here");
@@ -157,5 +159,8 @@ impl eframe::App for TexasimgApp {
                 ui.code("EMPTY");
             })
         });
+
+        frame.set_window_size(ctx.used_size());
+
     }
 }
