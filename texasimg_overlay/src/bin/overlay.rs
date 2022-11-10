@@ -1,27 +1,33 @@
-use std::{borrow::Cow, sync::mpsc::Sender};
-use std::sync::mpsc;
-
-use arboard::{Clipboard, ImageData};
-use egui::{FullOutput, Window, Spinner, Event};
+use arboard::{ImageData, Clipboard};
+use eframe::{egui, epaint::Rgba, Renderer};
 use egui_extras::RetainedImage;
 use image::EncodableLayout;
 use mktemp::Temp;
-use poll_promise::Promise;
-use texasimg::latex_render::{RenderContent, RenderContentOptions, ContentColour, containerised::RenderInstanceCont, RenderBackend, FormulaMode};
-use texasimg_overlay::{GlfwWindow, WgpuRenderer};
-use wgpu::{
-    CommandEncoderDescriptor, LoadOp, Operations, RenderPassColorAttachment, RenderPassDescriptor,
-};
+use texasimg::latex_render::{ContentColour, RenderContent, RenderContentOptions, containerised::RenderInstanceCont, RenderBackend};
+use std::{sync::mpsc, borrow::Cow};
 
-type ImagePacket = (Vec<u8>, (image::ImageBuffer<image::Rgba<u8>, Vec<u8>>, (u32, u32)));
-type ImageSender = mpsc::Sender<ImagePacket>;
-type ImageReceiver = mpsc::Receiver<ImagePacket>;
+fn main() {
+    let mut options = eframe::NativeOptions::default();
+    options.always_on_top = true;
+    options.transparent = true;
+    options.drag_and_drop_support = true;
+    options.decorated = false;
+    options.maximized = true;
+
+    let channel = mpsc::channel();
+
+    eframe::run_native("TeXasIMG", options, Box::new(|_cc| Box::new(TexasimgApp::new_with_channel(channel))))
+}
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum ContentType {
     Formula,
     Raw,
 }
+
+type ImagePacket = (Vec<u8>, (image::ImageBuffer<image::Rgba<u8>, Vec<u8>>, (u32, u32)));
+type ImageSender = mpsc::Sender<ImagePacket>;
+type ImageReceiver = mpsc::Receiver<ImagePacket>;
 
 struct TexasimgApp {
     input: String,
@@ -32,6 +38,8 @@ struct TexasimgApp {
     preview_ready: bool,
     colour: ContentColour,
     content_type: ContentType,
+    tmp_dir: Temp,
+    cb_ctx: Clipboard,
     img: Option<RetainedImage>,
 }
 
@@ -46,131 +54,78 @@ impl TexasimgApp {
             preview_ready: true,
             colour: ContentColour::default(),
             content_type: ContentType::Formula,
+            tmp_dir: Temp::new_dir().unwrap(),
+            cb_ctx: Clipboard::new().unwrap(),
             img: None,
         }
     }
 }
 
-fn main() {
-    let mut glfw_window = GlfwWindow::new().expect("failed to init window");
-    let mut wgpu_renderer =
-        pollster::block_on(WgpuRenderer::new(&glfw_window)).expect("failed to init wgpu");
-    let ctx = egui::Context::default();
+impl eframe::App for TexasimgApp {
 
-    let (tx, rx) = mpsc::channel();
+    fn clear_color(&self, _visuals: &egui::Visuals) -> egui::Rgba {
+        Rgba::TRANSPARENT
+    }
 
-    let mut app = TexasimgApp::new_with_channel((tx.clone(), rx));
-    let mut cb_ctx = Clipboard::new().unwrap();
-    let tmp_dir = Temp::new_dir().unwrap();
-
-    glfw_window.window.set_floating(true);
-
-    while !glfw_window.window.should_close() {
-        glfw_window.tick();
-        wgpu_renderer
-            .pre_tick(&glfw_window)
-            .expect("failed to tick");
-        // use wgpu to draw whatever you want. here we just clear the surface. we only do this IF the framebuffer exists, otherwise, something's gone wrong
-        // don't take out the framebuffer either, it is used by egui render pass later
-        {
-            let mut encoder =
-                wgpu_renderer
-                    .device
-                    .create_command_encoder(&CommandEncoderDescriptor {
-                        label: Some("clear pass encoder"),
-                    });
-            {
-                if let Some((_fb, fbv)) = wgpu_renderer.framebuffer_and_view.as_ref() {
-                    encoder.begin_render_pass(&RenderPassDescriptor {
-                        label: Some("clear render pass"),
-                        color_attachments: &[RenderPassColorAttachment {
-                            view: fbv,
-                            resolve_target: None,
-                            ops: Operations {
-                                // transparent color
-                                load: LoadOp::Clear(wgpu::Color {
-                                    r: 0.0,
-                                    g: 0.0,
-                                    b: 0.0,
-                                    a: 0.0,
-                                }),
-                                store: true,
-                            },
-                        }],
-                        depth_stencil_attachment: None,
-                    });
-                }
-            }
-            wgpu_renderer
-                .queue
-                .submit(std::iter::once(encoder.finish()));
-        }
-        // for people who want to only do egui, just stay between begin_frame and end_frame functions. that's where you dela with gui.
-        // now, we can do our own things with egui
-        // take the input from glfw_window
-        ctx.begin_frame(glfw_window.raw_input.take());
-        Window::new("TeXasIMG").show(&ctx, |ui| {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        egui::Window::new("TeXasIMG").show(&ctx, |ui| {
 
             ui.label("Enter LaTeX here");
-            ui.code_editor(&mut app.input);
+            ui.code_editor(&mut self.input);
 
             ui.group(|ui| {
-
                 egui::ComboBox::from_label("Text colour")
-                    .selected_text(format!("{:?}", app.colour))
+                    .selected_text(format!("{:?}", self.colour))
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut app.colour, ContentColour::Black, "Black");
-                        ui.selectable_value(&mut app.colour, ContentColour::White, "White");
+                        ui.selectable_value(&mut self.colour, ContentColour::Black, "Black");
+                        ui.selectable_value(&mut self.colour, ContentColour::White, "White");
                     });
 
                 egui::ComboBox::from_label("Input type")
-                    .selected_text(format!("{:?}", app.content_type))
+                    .selected_text(format!("{:?}", self.content_type))
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut app.content_type, ContentType::Formula, "Formula");
-                        ui.selectable_value(&mut app.content_type, ContentType::Raw, "Raw");
+                        ui.selectable_value(&mut self.content_type, ContentType::Formula, "Formula");
+                        ui.selectable_value(&mut self.content_type, ContentType::Raw, "Raw");
                     });
 
                 ui.horizontal(|ui| {
-
                     if ui.button("RENDER").clicked() {
-
                         let rc: RenderContent;
                         let mut rco = RenderContentOptions::default();
-                        rco.scale = Some(app.scale);
-                        rco.ink_colour = (&app.colour).clone();
+                        rco.scale = Some(self.scale);
+                        rco.ink_colour = (&self.colour).clone();
 
-                        match app.content_type {
+                        match self.content_type {
                             ContentType::Formula => {
-                                rc = RenderContent::new_with_options(app.input.clone(), rco);
+                                rc = RenderContent::new_with_options(self.input.clone(), rco);
                             },
                             ContentType::Raw => {
-                                rc = RenderContent::new_with_options(app.input.clone(), rco);
+                                rc = RenderContent::new_with_options(self.input.clone(), rco);
                             },
                         }
 
-                        let mut r_i = RenderInstanceCont::new(tmp_dir.as_path(), rc);
+                        let mut r_i = RenderInstanceCont::new(self.tmp_dir.as_path(), rc);
 
-                            let tx_j = tx.clone();
-                            std::thread::spawn(move || {
-                                if let Ok(data) = r_i.render() {
-                                    let img =
-                                        image::load_from_memory(&data).unwrap().to_rgba8();
-                                    let (w, h) = img.dimensions();
+                        let tx_j = self.render_tx.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(data) = r_i.render() {
+                                let img = image::load_from_memory(&data).unwrap().to_rgba8();
+                                let (w, h) = img.dimensions();
 
-                                    tx_j.send((data, (img, (w, h)))).unwrap();
-                                }
-                            });
+                                tx_j.send((data, (img, (w, h)))).unwrap();
+                            }
+                        });
 
-                        app.render_ready = false;
+                        self.render_ready = false;
                     }
 
                     if ui.button("EXIT").clicked() {
                         std::process::exit(0);
                     }
 
-                    ui.add(egui::Slider::new(&mut app.scale, 1.0..=10.0).text("scale"));
+                    ui.add(egui::Slider::new(&mut self.scale, 1.0..=10.0).text("scale"));
 
-                    if let Ok(data) = app.render_rx.try_recv() {
+                    if let Ok(data) = self.render_rx.try_recv() {
                         let img_data = ImageData {
                             width: (data.1).1.0 as usize,
                             height: (data.1).1.1 as usize,
@@ -179,20 +134,20 @@ fn main() {
 
                         match RetainedImage::from_image_bytes("out", data.0.as_bytes()) {
                             Ok(image) => {
-                                app.img = Some(image);
+                                self.img = Some(image);
                             },
                             Err(_) => {},
                         }
 
-                        cb_ctx.set_image(img_data).unwrap();
-                        app.render_ready = true;
+                        self.cb_ctx.set_image(img_data).unwrap();
+                        self.render_ready = true;
                     } else {
-                        if !app.render_ready {
+                        if !self.render_ready {
                             ui.add(egui::Spinner::new());
                         }
                     }
 
-                    if let Some(image) = &app.img {
+                    if let Some(image) = &self.img {
                         image.show(ui);
                     }
                 });
@@ -202,30 +157,5 @@ fn main() {
                 ui.code("EMPTY");
             })
         });
-
-        // now at the end of all gui stuff, we end the frame to get platform output and textures_delta and shapes
-        let FullOutput {
-            platform_output,
-            textures_delta,
-            shapes,
-            ..
-        } = ctx.end_frame();
-        let shapes = ctx.tessellate(shapes); // need to convert shapes into meshes to draw
-                                             // in platform output, we only care about two things. first is whether some text has been copied, which needs ot be put into clipbaord
-        if !platform_output.copied_text.is_empty() {
-            glfw_window
-                .window
-                .set_clipboard_string(&platform_output.copied_text);
-        }
-        // here we draw egui to framebuffer and submit it finally
-        wgpu_renderer
-            .tick(textures_delta, shapes, &glfw_window)
-            .expect("failed to draw for some reason");
-        // based on whether egui wants the input or not, we will set the overlay to be passthrough or not.
-        if ctx.wants_keyboard_input() || ctx.wants_pointer_input() {
-            glfw_window.window.set_mouse_passthrough(false);
-        } else {
-            glfw_window.window.set_mouse_passthrough(true);
-        }
     }
 }
