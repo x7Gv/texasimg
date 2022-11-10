@@ -3,7 +3,7 @@ use eframe::{egui, epaint::{Rgba, Vec2}, Renderer};
 use egui_extras::RetainedImage;
 use image::EncodableLayout;
 use mktemp::Temp;
-use texasimg::latex_render::{ContentColour, RenderContent, RenderContentOptions, containerised::RenderInstanceCont, RenderBackend};
+use texasimg::latex_render::{ContentColour, RenderContent, RenderContentOptions, containerised::RenderInstanceCont, RenderBackend, ContentMode};
 use std::{sync::mpsc, borrow::Cow};
 
 fn main() {
@@ -102,6 +102,7 @@ impl eframe::App for TexasimgApp {
                                 rc = RenderContent::new_with_options(self.input.clone(), rco);
                             },
                             ContentType::Raw => {
+                                rco.content_mode = ContentMode::Raw;
                                 rc = RenderContent::new_with_options(self.input.clone(), rco);
                             },
                         }

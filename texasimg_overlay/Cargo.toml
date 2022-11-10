@@ -19,7 +19,4 @@ arboard = "3.2.0"
 
 mktemp = "0.4"
 texasimg = { path = "../texasimg" }
-poll-promise = "0.1"
 
-#[dev-dependencies]
-pollster = "0.2"
