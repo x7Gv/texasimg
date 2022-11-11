@@ -13,8 +13,6 @@ const DEFAULT_IMPORTS: &'static str = r#"\usepackage{amsmath}
 \usepackage{xcolor}
 \usepackage{siunitx}
 \usepackage[utf8]{inputenc}
-\usepackage{tikz}
-\usepackage{tikz-cd}
 "#;
 
 fn default_imports() -> Vec<RenderContentImport> {
@@ -297,21 +295,118 @@ pub trait RenderBackend {
 
 pub mod native {
 
-    use tectonic::{status, ctry, config, driver::{ProcessingSessionBuilder, self}};
+    pub enum OutputLog {
+        Success,
+        Error(Vec<String>),
+    }
+
+    use anyhow::Error;
+    use tectonic::{status::{self, StatusBackend, plain::PlainStatusBackend, ChatterLevel, MessageKind}, ctry, config, driver::{ProcessingSessionBuilder, self}};
 
     use super::*;
 
     pub struct RenderInstanceNative {
         root: PathBuf,
         content: RenderContent,
+        pub logs: Vec<LogRecord>,
+    }
+
+    pub struct TAIStatusBackend {
+        always_stderr: bool,
+        chatter: ChatterLevel,
+        plain: PlainStatusBackend,
+        logs: Vec<LogRecord>,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct LogRecord {
+        kind: status::MessageKind,
+        args: String,
+    }
+
+    impl TAIStatusBackend {
+
+        pub fn new(chatter: ChatterLevel) -> Self {
+            Self {
+                always_stderr: false,
+                chatter,
+                plain: PlainStatusBackend::new(chatter),
+                logs: Vec::new(),
+            }
+        }
+
+        pub fn always_stderr(&mut self, setting: bool) -> &mut Self {
+            self.plain.always_stderr(setting);
+            self
+        }
+
+        pub fn logs(&self) -> &Vec<LogRecord> {
+            &self.logs
+        }
+
+        pub fn into_logs(self) -> Vec<LogRecord> {
+            self.logs
+        }
+    }
+
+    impl StatusBackend for TAIStatusBackend {
+        fn report(&mut self, kind: status::MessageKind, args: std::fmt::Arguments, err: Option<&anyhow::Error>) {
+
+            let prefix = match kind {
+                status::MessageKind::Note => "note:",
+                status::MessageKind::Warning => "warning:",
+                status::MessageKind::Error => "error:",
+            };
+
+            if kind == MessageKind::Note && !self.always_stderr {
+
+                if !self.chatter.suppress_message(kind) {
+                    println!("{} {}", prefix, args);
+                }
+
+                self.logs.push(LogRecord { kind, args: args.to_string()});
+            } else {
+                if !self.chatter.suppress_message(kind) {
+                    eprintln!("{} {}", prefix, args);
+                }
+                self.logs.push(LogRecord { kind, args: args.to_string()});
+            }
+
+            if let Some(e) = err {
+                for item in e.chain() {
+                    if !self.chatter.suppress_message(kind) {
+                        println!("{} {}", prefix, args);
+                    }
+                    self.logs.push(LogRecord { kind, args: args.to_string()});
+                }
+            }
+        }
+
+        fn report_error(&mut self, err: &Error) {
+            let mut prefix = "error";
+
+            for item in err.chain() {
+                eprintln!("{}: {}", prefix, item);
+                prefix = "caused by";
+            }
+        }
+
+        fn dump_error_logs(&mut self, output: &[u8]) {
+            self.plain.dump_error_logs(output);
+        }
     }
 
     impl RenderInstanceNative {
         pub fn new<P: Into<PathBuf>>(root: P, content: RenderContent) -> Self {
             Self {
+                logs: Vec::new(),
                 root: root.into(),
                 content,
             }
+        }
+
+        fn parse_output_log(&mut self, source: &str) {
+            source.split("!");
         }
 
         fn create_tex(&self) -> Vec<u8> {
@@ -319,19 +414,16 @@ pub mod native {
             data
         }
 
-        fn create_pdf(&self, tex: &[u8]) -> Result<Vec<u8>> {
-            let mut status = status::NoopStatusBackend::default();
+        fn create_pdf(&mut self, tex: &[u8]) -> Result<Vec<u8>> {
+            let mut status = TAIStatusBackend::new(ChatterLevel::Normal);
 
             let auto_create_config_file = false;
-            let config = ctry!(config::PersistentConfig::open(auto_create_config_file);
-            "failed to open default configuration file");
+            let config = config::PersistentConfig::open(auto_create_config_file)?;
 
             let only_cached = false;
-            let bundle = ctry!(config.default_bundle(only_cached, &mut status);
-            "failed to load default resource bundle");
+            let bundle = config.default_bundle(only_cached, &mut status)?;
 
-            let format_cache_path = ctry!(config.format_cache_path();
-            "failed to set format cache");
+            let format_cache_path = config.format_cache_path()?;
 
             let mut files = {
                 let mut sb = ProcessingSessionBuilder::default();
@@ -340,16 +432,23 @@ pub mod native {
                     .tex_input_name("texput.tex")
                     .format_name("latex")
                     .format_cache_path(format_cache_path)
-                    .keep_logs(false)
+                    .keep_logs(true)
                     .keep_intermediates(false)
-                    .print_stdout(false)
                     .output_format(driver::OutputFormat::Pdf)
                     .do_not_write_output_files();
 
-                let mut sess = ctry!(sb.create(&mut status); "failed to initialize the LaTeX processing session");
-                ctry!(sess.run(&mut status); "the LaTex engine failed");
+                let mut sess = sb.create(&mut status)?;
+                match sess.run(&mut status) {
+                    Ok(_) => "success",
+                    Err(_) => "err",
+                };
+
+                println!("s {:?}", status.logs().iter().map(|rec| &rec.args).collect::<Vec<_>>());
+
                 sess.into_file_data()
             };
+
+            self.logs = status.into_logs();
 
             let data = files.remove("texput.pdf").unwrap().data;
             Ok(data)

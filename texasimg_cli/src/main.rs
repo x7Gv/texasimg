@@ -12,7 +12,7 @@ use image::{EncodableLayout, ImageEncoder, ImageFormat, ImageOutputFormat};
 use mktemp::Temp;
 use structopt::clap::arg_enum;
 use structopt::StructOpt;
-use texasimg::latex_render::{RenderContent, RenderContentOptions, FormulaMode, containerised::RenderInstanceCont, ContentColour, RenderBackend, ContentMode};
+use texasimg::latex_render::{RenderContent, RenderContentOptions, FormulaMode, containerised::RenderInstanceCont, ContentColour, RenderBackend, ContentMode, native::RenderInstanceNative};
 
 arg_enum! {
     #[derive(Debug)]
