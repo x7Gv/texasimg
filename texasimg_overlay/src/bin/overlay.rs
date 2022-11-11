@@ -3,7 +3,7 @@ use eframe::{egui, epaint::{Rgba, Vec2}, Renderer};
 use egui_extras::RetainedImage;
 use image::EncodableLayout;
 use mktemp::Temp;
-use texasimg::latex_render::{ContentColour, RenderContent, RenderContentOptions, containerised::RenderInstanceCont, RenderBackend, ContentMode};
+use texasimg::latex_render::{ContentColour, RenderContent, RenderContentOptions, containerised::RenderInstanceCont, RenderBackend, ContentMode, native::RenderInstanceNative};
 use std::{sync::mpsc, borrow::Cow};
 
 fn main() {
@@ -107,11 +107,12 @@ impl eframe::App for TexasimgApp {
                             },
                         }
 
-                        let mut r_i = RenderInstanceCont::new(self.tmp_dir.as_path(), rc);
+                        // let mut r_i = RenderInstanceCont::new(self.tmp_dir.as_path(), rc);
+                        let mut r_n = RenderInstanceNative::new(self.tmp_dir.as_path(), rc);
 
                         let tx_j = self.render_tx.clone();
                         std::thread::spawn(move || {
-                            if let Ok(data) = r_i.render() {
+                            if let Ok(data) = r_n.render() {
                                 let img = image::load_from_memory(&data).unwrap().to_rgba8();
                                 let (w, h) = img.dimensions();
 

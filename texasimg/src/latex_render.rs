@@ -295,6 +295,147 @@ pub trait RenderBackend {
     fn render(&mut self) -> Result<Vec<u8>>;
 }
 
+pub mod native {
+
+    use tectonic::{status, ctry, config, driver::{ProcessingSessionBuilder, self}};
+
+    use super::*;
+
+    pub struct RenderInstanceNative {
+        root: PathBuf,
+        content: RenderContent,
+    }
+
+    impl RenderInstanceNative {
+        pub fn new<P: Into<PathBuf>>(root: P, content: RenderContent) -> Self {
+            Self {
+                root: root.into(),
+                content,
+            }
+        }
+
+        fn create_tex(&self) -> Vec<u8> {
+            let data = self.content.as_tex().as_bytes().to_vec();
+            data
+        }
+
+        fn create_pdf(&self, tex: &[u8]) -> Result<Vec<u8>> {
+            let mut status = status::NoopStatusBackend::default();
+
+            let auto_create_config_file = false;
+            let config = ctry!(config::PersistentConfig::open(auto_create_config_file);
+            "failed to open default configuration file");
+
+            let only_cached = false;
+            let bundle = ctry!(config.default_bundle(only_cached, &mut status);
+            "failed to load default resource bundle");
+
+            let format_cache_path = ctry!(config.format_cache_path();
+            "failed to set format cache");
+
+            let mut files = {
+                let mut sb = ProcessingSessionBuilder::default();
+                sb.bundle(bundle)
+                    .primary_input_buffer(tex)
+                    .tex_input_name("texput.tex")
+                    .format_name("latex")
+                    .format_cache_path(format_cache_path)
+                    .keep_logs(false)
+                    .keep_intermediates(false)
+                    .print_stdout(false)
+                    .output_format(driver::OutputFormat::Pdf)
+                    .do_not_write_output_files();
+
+                let mut sess = ctry!(sb.create(&mut status); "failed to initialize the LaTeX processing session");
+                ctry!(sess.run(&mut status); "the LaTex engine failed");
+                sess.into_file_data()
+            };
+
+            let data = files.remove("texput.pdf").unwrap().data;
+            Ok(data)
+        }
+
+        fn create_png(&self, pdf: Vec<u8>) -> Result<Vec<u8>> {
+            let mut output: Vec<u8> = Vec::new();
+
+            println!("{:?}", self.root);
+
+            let mut path = self.root.clone();
+            path.push("texput");
+            path.set_extension("pdf");
+
+            let mut file = File::create(path)?;
+            file.write_all(&pdf[..])?;
+
+            // dvisvgm --no-fonts --scale={} --exact equation.dv
+
+            Command::new("pdfcrop")
+                .arg("texput.pdf")
+                .current_dir(&self.root).output().unwrap();
+
+            Command::new("dvisvgm")
+                .arg("texput-crop.pdf")
+                .arg("--no-fonts")
+                .arg(format!("--scale={}", self.content.options.scale.unwrap_or(2.)))
+                .arg("--pdf=texput-crop.pdf")
+                .current_dir(&self.root)
+                .env("LIBGS", "/usr/lib/libgs.so")
+                .env("GS_OPTIONS", "-dNEWPDF=false")
+                .output();
+
+            let mut svg_opt = usvg::Options::default();
+            svg_opt.resources_dir = std::fs::canonicalize(&self.root)
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+            svg_opt.fontdb.load_system_fonts();
+
+            let mut svg_path = self.root.clone();
+            svg_path.push("texput-crop");
+            svg_path.set_extension("svg");
+
+            let svg_data = std::fs::read(&svg_path)?;
+
+            let rtree = usvg::Tree::from_data(&svg_data, &svg_opt.to_ref())?;
+            let pixmap_size = rtree.svg_node().size.to_screen_size();
+            let mut pixmap =
+                tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
+            resvg::render(
+                &rtree,
+                usvg::FitTo::Original,
+                tiny_skia::Transform::default(),
+                pixmap.as_mut(),
+            )
+            .unwrap();
+
+            let mut png_path = self.root.clone();
+            png_path.push("texput");
+            png_path.set_extension("png");
+
+            pixmap.save_png(&png_path).unwrap();
+
+            let data = std::fs::read(png_path)?;
+            Ok(data)
+        }
+    }
+
+    impl RenderBackend for RenderInstanceNative {
+        fn render(&mut self) -> Result<Vec<u8>> {
+            let tex = self.create_tex();
+            let pdf = self.create_pdf(&tex)?;
+            let png = self.create_png(pdf)?;
+
+            let mut path = self.root.clone();
+            path.push("out");
+            path.set_extension("png");
+
+            let mut file = File::create(path)?;
+            file.write(&png)?;
+
+            Ok(png.to_vec())
+        }
+    }
+}
+
 pub mod containerised {
     use super::*;
 
