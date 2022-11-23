@@ -160,7 +160,7 @@ impl eframe::App for TeximexApp {
             self.render_img();
         }
 
-        egui::Window::new("TeXImEx").show(&ctx, |ui| {
+        egui::CentralPanel::default().show(&ctx, |ui| {
 
             ui.label("Enter (La)TeX here");
 
