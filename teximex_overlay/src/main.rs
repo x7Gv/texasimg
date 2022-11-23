@@ -27,7 +27,7 @@ fn main() {
     options.transparent = true;
     options.drag_and_drop_support = true;
     options.decorated = true;
-    options.initial_window_size = Some(Vec2::new(300., 150.));
+    //options.initial_window_size = Some(Vec2::new(300., 150.));
     //options.icon_data = Some(IconData { rgba: img.to_vec(), width: 128, height: 128 });
 
     let channel = mpsc::channel();
