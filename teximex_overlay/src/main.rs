@@ -2,7 +2,9 @@ use std::sync::{Arc, Mutex};
 use std::{borrow::Cow, sync::mpsc};
 
 use arboard::{Clipboard, ImageData};
-use eframe::epaint::Rgba;
+use eframe::egui::{Id, Sense};
+use eframe::emath::Align2;
+use eframe::epaint::{Rgba, FontId, Stroke, vec2};
 use eframe::IconData;
 use eframe::{egui, epaint::Vec2};
 use egui_extras::RetainedImage;
@@ -24,7 +26,7 @@ fn main() {
     options.always_on_top = true;
     options.transparent = true;
     options.drag_and_drop_support = true;
-    options.decorated = false;
+    options.decorated = true;
     options.initial_window_size = Some(Vec2::new(100., 100.));
     //options.icon_data = Some(IconData { rgba: img.to_vec(), width: 128, height: 128 });
 
@@ -159,6 +161,7 @@ impl eframe::App for TeximexApp {
         }
 
         egui::Window::new("TeXImEx").show(&ctx, |ui| {
+
             ui.label("Enter (La)TeX here");
 
             ui.add(
