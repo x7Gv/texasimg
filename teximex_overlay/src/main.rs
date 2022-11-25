@@ -2,9 +2,9 @@ use std::sync::{Arc, Mutex};
 use std::{borrow::Cow, sync::mpsc};
 
 use arboard::{Clipboard, ImageData};
-use eframe::egui::{Id, Sense};
+use eframe::egui::{Id, ScrollArea, Sense, RichText, Button, Style};
 use eframe::emath::Align2;
-use eframe::epaint::{Rgba, FontId, Stroke, vec2};
+use eframe::epaint::{vec2, Color32, FontId, Rgba, Stroke};
 use eframe::IconData;
 use eframe::{egui, epaint::Vec2};
 use egui_extras::RetainedImage;
@@ -18,6 +18,8 @@ use teximex::{
     },
     tex::{Color, MathMode, TexString},
 };
+
+use egui_demo_lib::syntax_highlighting::code_view_ui;
 
 fn main() {
     let img = include_bytes!("assets/teximex_icon.png");
@@ -120,6 +122,11 @@ impl TeximexApp {
         }
     }
 
+    fn document_to_string(&self) -> String {
+        let doc = self.compile_document();
+        doc.to_tex()
+    }
+
     fn render_img(&mut self) {
         let doc = self.compile_document();
 
@@ -151,11 +158,20 @@ impl TeximexApp {
 }
 
 impl eframe::App for TeximexApp {
+
     fn clear_color(&self, _visuals: &egui::Visuals) -> egui::Rgba {
         Rgba::TRANSPARENT
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+
+        let style = ctx.style();
+
+        let mut styl = Style::default();
+        styl.visuals.selection.bg_fill = Color32::from_rgb(94, 150, 93);
+        ctx.set_style(styl);
+
+
         if ctx.input().key_pressed(egui::Key::F5) {
             self.render_img();
         }
@@ -176,13 +192,17 @@ impl eframe::App for TeximexApp {
             );
 
              ui.horizontal(|ui| {
-                if ui.button("RENDER").clicked() {
+                if ui.button(RichText::new("RENDER").monospace()).clicked() {
                     self.render_img();
                 }
 
-                if ui.button("EXIT").clicked() {
-                    std::process::exit(0);
-                }
+                 if ui.add(Button::new(RichText::new("EXIT").monospace().color(Color32::WHITE)).fill(Color32::DARK_RED)).clicked() {
+                     std::process::exit(0);
+                 }
+            });
+
+            ui.collapsing(RichText::new("raw document"), |ui| {
+                code_view_ui(ui, &self.document_to_string());
             });
 
             ui.group(|ui| {
@@ -217,8 +237,6 @@ impl eframe::App for TeximexApp {
             });
 
             ui.group(|ui| {
-                ui.label("output");
-
                 if let Some(image) = &self.img {
                     image.show(ui);
                 }
@@ -230,7 +248,18 @@ impl eframe::App for TeximexApp {
             });
 
             ui.collapsing("log", |ui| {
-                ui.code(format!("{:?}", self.logs));
+                ScrollArea::both().show(ui, |ui| {
+
+                    code_view_ui(ui, {
+                        &self.logs.iter().enumerate().map(|pair| {
+                        if pair.0 == self.logs.len() - 1 {
+                            format!("{}", pair.1)
+                        } else {
+                            format!("{}\n", pair.1)
+                        }
+                    }).collect::<String>()
+                    });
+                });
             });
 
             if let Ok(data) = self.render_rx.try_recv() {

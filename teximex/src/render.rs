@@ -77,7 +77,7 @@ pub mod log {
 }
 
 pub mod native {
-    use std::{fs::File, io::Write, path::PathBuf, process::Command};
+    use std::{fs::File, io::Write, path::PathBuf, process::Command, fmt::Display};
     use tectonic::{
         config,
         driver::{self, ProcessingSessionBuilder},
@@ -98,6 +98,16 @@ pub mod native {
         pub instance: RenderInstance<String, Loaded>,
         pub path_root: PathBuf,
         pub logs: Vec<NativeLogRecord>,
+    }
+
+    impl Display for NativeLogRecord {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self.kind {
+                MessageKind::Note => write!(f, "note: {}", self.args),
+                MessageKind::Warning => write!(f, "warning: {}", self.args),
+                MessageKind::Error => write!(f, "error: {}", self.args),
+            }
+        }
     }
 
     impl RenderInstanceNative {
