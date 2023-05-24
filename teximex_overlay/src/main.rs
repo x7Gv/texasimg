@@ -38,7 +38,7 @@ fn main() {
         "TeXImEx",
         options,
         Box::new(|_cc| Box::new(TeximexApp::new_with_channel(channel))),
-    )
+    ).unwrap();
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -159,8 +159,8 @@ impl TeximexApp {
 
 impl eframe::App for TeximexApp {
 
-    fn clear_color(&self, _visuals: &egui::Visuals) -> egui::Rgba {
-        Rgba::TRANSPARENT
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0,0.0,0.0,0.0]
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
@@ -172,9 +172,11 @@ impl eframe::App for TeximexApp {
         ctx.set_style(styl);
 
 
-        if ctx.input().key_pressed(egui::Key::F5) {
-            self.render_img();
-        }
+        ctx.input(|state| {
+            if state.key_pressed(egui::Key::F5) {
+                self.render_img()
+            }
+        });
 
         egui::CentralPanel::default().show(&ctx, |ui| {
 
