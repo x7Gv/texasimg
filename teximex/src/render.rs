@@ -123,7 +123,7 @@ pub mod native {
             self.instance.document().to_tex().as_bytes().to_vec()
         }
 
-        fn create_pdf(&mut self, tex: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        fn create_dvi(&mut self, tex: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
             let mut status = StoredStatusBackend::new(ChatterLevel::Normal, self);
 
             let auto_create_config = false;
@@ -137,6 +137,7 @@ pub mod native {
             let mut files = {
                 let mut session_builder = ProcessingSessionBuilder::default();
                 session_builder
+                    .output_format(driver::OutputFormat::Xdv)
                     .bundle(bundle)
                     .primary_input_buffer(tex)
                     .tex_input_name("texput.tex")
@@ -144,7 +145,6 @@ pub mod native {
                     .format_cache_path(format_cache_path)
                     .keep_logs(true)
                     .keep_intermediates(false)
-                    .output_format(driver::OutputFormat::Pdf)
                     .do_not_write_output_files();
 
                 let mut session = session_builder.create(&mut status)?;
@@ -154,34 +154,25 @@ pub mod native {
 
             println!("{:?}", self.logs);
 
-            let data = files.remove("texput.pdf").unwrap().data;
+            let data = files.remove("texput.xdv").unwrap().data;
             Ok(data)
         }
 
-        fn create_png(&self, pdf: Vec<u8>) -> anyhow::Result<Vec<u8>> {
+        fn create_png(&self, dvi: Vec<u8>) -> anyhow::Result<Vec<u8>> {
             dbg!("{:?}", &self.path_root);
 
             let mut path = self.path_root.clone();
             path.push("texput");
-            path.set_extension("pdf");
+            path.set_extension("xdv");
 
             let mut file = File::create(path)?;
-            file.write_all(&pdf[..])?;
-
-            Command::new("pdfcrop")
-                .arg(format!("--margins={}", self.instance.options.margin()))
-                .arg("texput.pdf")
-                .current_dir(&self.path_root)
-                .output()?;
+            file.write_all(&dvi[..])?;
 
             Command::new("dvisvgm")
-                .arg("texput-crop.pdf")
+                .arg("texput.xdv")
                 .arg("--no-fonts")
                 .arg(format!("--scale={}", self.instance.options.scale()))
-                .arg("--pdf=texput-crop.pdf")
                 .current_dir(&self.path_root)
-                .env("LIBGS", "/usr/lib/libgs.so")
-                .env("GS_OPTIONS", "-dNEWPDF=false")
                 .output()?;
 
             let mut svg_opt = usvg::Options::default();
@@ -191,7 +182,7 @@ pub mod native {
             svg_opt.fontdb.load_system_fonts();
 
             let mut svg_path = self.path_root.clone();
-            svg_path.push("texput-crop");
+            svg_path.push("texput");
             svg_path.set_extension("svg");
 
             let svg_data = std::fs::read(&svg_path)?;
@@ -223,8 +214,8 @@ pub mod native {
     impl RenderBackend for RenderInstanceNative {
         fn render(&mut self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
             let tex = self.create_tex();
-            let pdf = self.create_pdf(&tex)?;
-            let png = self.create_png(pdf)?;
+            let dvi = self.create_dvi(&tex)?;
+            let png = self.create_png(dvi)?;
 
             let mut path = self.path_root.clone();
             path.push("out");

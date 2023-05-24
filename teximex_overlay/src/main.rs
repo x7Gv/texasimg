@@ -278,6 +278,8 @@ impl eframe::App for TeximexApp {
                             Err(_) => {}
                         }
 
+                        dbg!(self.img.is_none());
+
                         self.clipboard.set_image(img_data).unwrap();
 
                         self.logs = data.2;
@@ -285,6 +287,9 @@ impl eframe::App for TeximexApp {
                         self.render_ready = true;
                     }
                     Packet::NoImage(data) => {
+
+                        println!("NO IMAGI");
+
                         self.logs = data;
                         self.render_ready = true;
                     }
