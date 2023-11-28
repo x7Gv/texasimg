@@ -10,10 +10,11 @@ use eframe::{egui, epaint::Vec2};
 use egui_extras::RetainedImage;
 use image::EncodableLayout;
 use mktemp::Temp;
+use teximex::render::native::LogRecord;
 use teximex::{
     document::{Document, DocumentBuilder, DocumentMathMode, DocumentOptions},
     render::{
-        native::{NativeLogRecord, RenderInstanceNative},
+        native::{RenderInstanceNative},
         RenderBackend, RenderInstance, RenderOptions,
     },
     tex::{Color, MathMode, TexString},
@@ -58,7 +59,7 @@ type ImagePacket = (
     Logs,
 );
 
-type Logs = Vec<NativeLogRecord>;
+type Logs = Vec<LogRecord>;
 
 type ImageSender = mpsc::Sender<Packet>;
 type ImageReceiver = mpsc::Receiver<Packet>;
@@ -75,7 +76,7 @@ struct TeximexApp {
     content_type: ContentType,
     tmp: Temp,
     clipboard: Clipboard,
-    logs: Vec<NativeLogRecord>,
+    logs: Vec<LogRecord>,
     img: Option<RetainedImage>,
     additional_preamble: String,
 }
@@ -255,9 +256,9 @@ impl eframe::App for TeximexApp {
                     code_view_ui(ui, {
                         &self.logs.iter().enumerate().map(|pair| {
                         if pair.0 == self.logs.len() - 1 {
-                            format!("{}", pair.1)
+                            format!("{:#?}", pair.1)
                         } else {
-                            format!("{}\n", pair.1)
+                            format!("{:#?}\n", pair.1)
                         }
                     }).collect::<String>()
                     });
